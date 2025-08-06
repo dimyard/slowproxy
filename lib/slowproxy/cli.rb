@@ -10,12 +10,18 @@ module Slowproxy
         port: 8989,
         bps: 128 * 1024,
         debug: false,
+        latency: 0,
+        jitter: 0,
+        drop_rate: 0.0,
       }
 
       OptionParser.new do |o|
         o.banner = "Usage: #{$0} [options] [speed(g|m|k)[bps]]"
         o.on("-p PORT", "--port=PORT", Integer){|i| options[:port] = i }
         o.on("--debug", TrueClass){|b| options[:debug] = b }
+        o.on("--latency N", Integer, "Fixed latency in milliseconds"){|i| options[:latency] = i }
+        o.on("--jitter M", Integer, "Jitter ±M milliseconds"){|i| options[:jitter] = i }
+        o.on("--drop-rate R", Float, "Drop rate between 0.0 and 1.0"){|f| options[:drop_rate] = f }
         o.parse!(argv)
         options[:bps] = parse_bps(argv.first) unless argv.empty?
       end
@@ -26,6 +32,9 @@ module Slowproxy
         Logger: logger,
         Port: options[:port],
         BPS: options[:bps],
+        Latency: options[:latency],
+        Jitter: options[:jitter],
+        DropRate: options[:drop_rate],
       )
 
       Signal.trap('INT') do

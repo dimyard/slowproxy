@@ -25,6 +25,14 @@ You can set listening port (default: 8989).
 
     $ slowproxy --port 8080
 
+You can introduce latency, jitter and packet loss:
+
+    $ slowproxy --latency 100 --jitter 20 --drop-rate 0.1
+
+Latency adds round-trip delay but transfers continue at the configured
+bandwidth.  Packet loss drops random blocks after the initial handshake in
+each direction and may break TLS connections.
+
 Or view help.
 
     $ slowproxy --help

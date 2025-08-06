@@ -4,7 +4,13 @@ module Slowproxy
   class Server < WEBrick::HTTPProxyServer
     def initialize(config, default = WEBrick::Config::HTTP)
       @bps = config.delete(:BPS)
+      @latency = config.delete(:Latency) || 0
+      @jitter = config.delete(:Jitter) || 0
+      @drop_rate = config.delete(:DropRate) || 0.0
       SlowBufferedIO.bps = @bps if @bps
+      SlowBufferedIO.latency = @latency
+      SlowBufferedIO.jitter = @jitter
+      SlowBufferedIO.drop_rate = @drop_rate
       super
       logger.info "#{number_to_human_size(@bps)}bps"
       SlowBufferedIO.logger = logger
@@ -55,10 +61,6 @@ module Slowproxy
       set_cookie(response, res)
       set_via(res)
       res.body = response.body
-    end
-
-    def wait_for_connect
-      @wait ||= 1 / ((SlowBufferedIO.bps / 8.0) / 1024)
     end
 
     def do_CONNECT(req, res)
@@ -121,24 +123,27 @@ module Slowproxy
         req.parse(NullReader) rescue nil
       end
 
+      client_bytes = 0
+      server_bytes = 0
+      handshake_bytes = 1024
       begin
-        while fds = IO::select([ua, os])
-          if fds[0].member?(ua)
-            buf = ua.sysread(1024);
+        while fds = IO.select([ua, os])
+          if fds[0].include?(ua)
+            buf = ua.sysread(SlowBufferedIO::BUFSIZE)
             @logger.debug("CONNECT: #{buf.bytesize} byte from User-Agent")
-            # Write slowly
-            @logger.debug "wait for write (#{wait_for_connect}s)"
-            sleep wait_for_connect
-            # /Write slowly
-            os.syswrite(buf)
-          elsif fds[0].member?(os)
-            # Read slowly
-            @logger.debug "wait for read (#{wait_for_connect}s)"
-            sleep wait_for_connect
-            # /Read slowly
-            buf = os.sysread(1024);
+            SlowBufferedIO.apply_delay
+            drop = client_bytes >= handshake_bytes && SlowBufferedIO.drop?
+            client_bytes += buf.bytesize
+            os.syswrite(buf) unless drop
+            SlowBufferedIO.sleep_for(buf.bytesize)
+          elsif fds[0].include?(os)
+            buf = os.sysread(SlowBufferedIO::BUFSIZE)
             @logger.debug("CONNECT: #{buf.bytesize} byte from #{host}:#{port}")
-            ua.syswrite(buf)
+            SlowBufferedIO.apply_delay
+            drop = server_bytes >= handshake_bytes && SlowBufferedIO.drop?
+            server_bytes += buf.bytesize
+            ua.syswrite(buf) unless drop
+            SlowBufferedIO.sleep_for(buf.bytesize)
           end
         end
       rescue => ex

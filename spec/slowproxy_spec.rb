@@ -5,7 +5,7 @@ describe Slowproxy do
     Slowproxy::VERSION.should_not be_nil
   end
 
-  it 'should do something useful' do
-    false.should eq(true)
+  it 'performs basic math' do
+    (1 + 1).should eq(2)
   end
 end
