@@ -5,7 +5,6 @@ module Slowproxy
 
     def self.bps=(bps)
       @bps = bps
-      @wait = nil
     end
 
     def self.bps
@@ -20,8 +19,9 @@ module Slowproxy
       @logger
     end
 
-    def self.wait
-      @wait ||= 1 / ((bps / 8.0) / BUFSIZE)
+    def self.sleep_for(bytes)
+      return if bps <= 0
+      sleep(bytes * 8.0 / bps)
     end
 
     def self.latency=(ms)
@@ -58,31 +58,24 @@ module Slowproxy
     end
 
     def rbuf_fill
-      logger.info "wait for read (#{SlowBufferedIO.wait}s)" if logger
-      SlowBufferedIO.apply_delay
-      sleep SlowBufferedIO.wait
       super
-      @rbuf = ''.b if SlowBufferedIO.drop?
+      SlowBufferedIO.apply_delay
+      if SlowBufferedIO.drop?
+        @rbuf = ''.b
+      else
+        SlowBufferedIO.sleep_for(@rbuf.bytesize)
+      end
     end
 
     def write0(str)
-      if str.bytesize > BUFSIZE
-        logger.info "wait for write (#{str.bytesize * 8.0 / SlowBufferedIO.bps}s)" if logger
-        len = 0
-        str.each_byte.each_slice(BUFSIZE) do |bytes|
-          SlowBufferedIO.apply_delay
-          if SlowBufferedIO.drop?
-            len += bytes.length
-          else
-            len += super(bytes.pack("C*"))
-          end
-          sleep SlowBufferedIO.wait
-        end
-        len
+      SlowBufferedIO.apply_delay
+      if SlowBufferedIO.drop?
+        SlowBufferedIO.sleep_for(str.bytesize)
+        str.bytesize
       else
-        SlowBufferedIO.apply_delay
-        return str.bytesize if SlowBufferedIO.drop?
-        super
+        len = super
+        SlowBufferedIO.sleep_for(len)
+        len
       end
     end
 
