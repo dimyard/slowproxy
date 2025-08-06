@@ -4,7 +4,13 @@ module Slowproxy
   class Server < WEBrick::HTTPProxyServer
     def initialize(config, default = WEBrick::Config::HTTP)
       @bps = config.delete(:BPS)
+      @latency = config.delete(:Latency) || 0
+      @jitter = config.delete(:Jitter) || 0
+      @drop_rate = config.delete(:DropRate) || 0.0
       SlowBufferedIO.bps = @bps if @bps
+      SlowBufferedIO.latency = @latency
+      SlowBufferedIO.jitter = @jitter
+      SlowBufferedIO.drop_rate = @drop_rate
       super
       logger.info "#{number_to_human_size(@bps)}bps"
       SlowBufferedIO.logger = logger
@@ -124,21 +130,23 @@ module Slowproxy
       begin
         while fds = IO::select([ua, os])
           if fds[0].member?(ua)
-            buf = ua.sysread(1024);
+            buf = ua.sysread(1024)
             @logger.debug("CONNECT: #{buf.bytesize} byte from User-Agent")
             # Write slowly
+            SlowBufferedIO.apply_delay
             @logger.debug "wait for write (#{wait_for_connect}s)"
             sleep wait_for_connect
             # /Write slowly
-            os.syswrite(buf)
+            os.syswrite(buf) unless SlowBufferedIO.drop?
           elsif fds[0].member?(os)
             # Read slowly
             @logger.debug "wait for read (#{wait_for_connect}s)"
             sleep wait_for_connect
             # /Read slowly
-            buf = os.sysread(1024);
+            buf = os.sysread(1024)
             @logger.debug("CONNECT: #{buf.bytesize} byte from #{host}:#{port}")
-            ua.syswrite(buf)
+            SlowBufferedIO.apply_delay
+            ua.syswrite(buf) unless SlowBufferedIO.drop?
           end
         end
       rescue => ex
